@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}URLs - Dark Web Monitor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-link"></i> Gerenciar URLs</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('add_url') }}" class="mb-4">
+                    <div class="input-group">
+                        <input type="url" class="form-control" name="url" placeholder="Digite uma URL .onion..." required>
+                        <button class="btn btn-success" type="submit">
+                            <i class="fas fa-plus"></i> Adicionar
+                        </button>
+                    </div>
+                    <small class="form-text text-muted">Apenas URLs .onion são aceitas</small>
+                </form>
+
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>URL</th>
+                            <th>Status</th>
+                            <th>Data de Criação</th>
+                            <th>Ações</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for url in urls %}
+                        <tr>
+                            <td>{{ url[0] }}</td>
+                            <td><code>{{ url[1] }}</code></td>
+                            <td>
+                                {% if url[2] %}
+                                    <span class="badge bg-success">Ativo</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Inativo</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ url[3] }}</td>
+                            <td>
+                                <a href="{{ url_for('toggle_url', url_id=url[0]) }}"
+                                   class="btn btn-sm btn-warning">
+                                    {% if url[2] %}
+                                        <i class="fas fa-pause"></i>
+                                    {% else %}
+                                        <i class="fas fa-play"></i>
+                                    {% endif %}
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted">Nenhuma URL configurada</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

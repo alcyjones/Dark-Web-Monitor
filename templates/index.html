@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-tachometer-alt"></i> Dashboard</h5>
+                <div>
+                    <span id="tor-status" class="status-indicator status-offline" title="TOR Status"></span>
+                    <span class="text-muted">Status TOR</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <div class="card bg-primary text-white">
+                            <div class="card-body">
+                                <h4><i class="fas fa-key"></i> Palavras-chave</h4>
+                                <p class="mb-0">Configuradas para monitoramento</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-success text-white">
+                            <div class="card-body">
+                                <h4><i class="fas fa-link"></i> URLs</h4>
+                                <p class="mb-0">Sites sendo monitorados</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-warning text-white">
+                            <div class="card-body">
+                                <h4><i class="fas fa-search"></i> Resultados</h4>
+                                <p class="mb-0">Ocorrências encontradas</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-info text-white">
+                            <div class="card-body">
+                                <h4><i class="fas fa-play"></i> Monitoramento</h4>
+                                <button class="btn btn-light btn-sm" onclick="startMonitoring()">Iniciar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <h6>Instruções de Uso:</h6>
+                    <ol>
+                        <li>Certifique-se de que o TOR está rodando (porta 9050)</li>
+                        <li>Configure as palavras-chave que deseja monitorar</li>
+                        <li>Adicione URLs .onion para monitoramento</li>
+                        <li>Inicie o monitoramento e acompanhe os resultados</li>
+                    </ol>
+
+                    <div class="alert alert-warning">
+                        <strong>Aviso:</strong> Esta ferramenta é apenas para fins educacionais e de segurança legítima.
+                        Use apenas para monitorar suas próprias informações e sempre respeite as leis locais.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function startMonitoring() {
+    fetch('/start_monitoring')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Erro: ' + data.error);
+            } else {
+                alert('Monitoramento iniciado com sucesso!');
+            }
+        })
+        .catch(error => {
+            alert('Erro ao iniciar monitoramento: ' + error);
+        });
+}
+</script>
+{% endblock %}
