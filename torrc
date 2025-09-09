@@ -1,0 +1,11 @@
+# Configuração do TOR para Dark Web Monitor
+SocksPort 9050
+ControlPort 9051
+CookieAuthentication 1
+
+# Configurações de segurança
+ExitPolicy reject *:*
+StrictNodes 1
+
+# Log
+Log notice file /var/log/tor/notices.log
