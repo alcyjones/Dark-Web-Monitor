@@ -6,6 +6,7 @@ import requests
 import re
 from urllib.parse import urljoin
 import logging
+import json
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
@@ -17,7 +18,6 @@ logger = logging.getLogger(__name__)
 class TorCrawler:
     def __init__(self):
         self.session = requests.Session()
-        # Proxy TOR padrão (localhost:9050)
         self.session.proxies = {
             'http': 'socks5h://127.0.0.1:9050',
             'https': 'socks5h://127.0.0.1:9050'
@@ -30,7 +30,6 @@ class TorCrawler:
 
     def is_tor_running(self):
         try:
-            # httpbin.org é acessível pela clearnet via TOR, útil pra testar IP
             response = self.session.get('http://httpbin.org/ip', timeout=10)
             return response.status_code == 200
         except:
@@ -38,24 +37,34 @@ class TorCrawler:
 
     def extract_links(self, html, base_url):
         links = []
-        # Extrai href="..."
         link_pattern = r'href=[\"\']([^\"\']+)[\"\']'
         matches = re.findall(link_pattern, html, re.IGNORECASE)
-
         for match in matches:
             if match.startswith('http'):
                 links.append(match)
-            elif match.startswith('/'):
+            else:
                 links.append(urljoin(base_url, match))
         return links
 
-    def search_keywords(self, html, keywords):
-        found_keywords = []
+    def search_keywords(self, html, keywords, context_chars=100):
+        found = []
         html_lower = html.lower()
         for keyword in keywords:
-            if keyword.lower() in html_lower:
-                found_keywords.append(keyword)
-        return found_keywords
+            keyword_lower = keyword.lower()
+            start = 0
+            while True:
+                pos = html_lower.find(keyword_lower, start)
+                if pos == -1:
+                    break
+                begin = max(0, pos - context_chars)
+                end = min(len(html), pos + len(keyword) + context_chars)
+                snippet = html[begin:end].strip()
+                found.append({
+                    'keyword': keyword,
+                    'snippet': snippet
+                })
+                start = pos + 1
+        return found
 
     def crawl_url(self, url, keywords, depth=0):
         if depth > self.max_depth or url in self.visited_urls:
@@ -70,22 +79,23 @@ class TorCrawler:
 
             if response.status_code == 200:
                 html = response.text
-                found_keywords = self.search_keywords(html, keywords)
+                found_items = self.search_keywords(html, keywords)
 
-                if found_keywords:
+                if found_items:
+                    found_keywords = list(set(item['keyword'] for item in found_items))
                     result = {
                         'url': url,
                         'keywords': found_keywords,
                         'timestamp': datetime.now().isoformat(),
-                        'title': self.extract_title(html)
+                        'title': self.extract_title(html),
+                        'snippets': found_items
                     }
                     results.append(result)
                     self.save_result(result)
 
-                # Segue links .onion
                 if '.onion' in url and depth < self.max_depth:
                     links = self.extract_links(html, url)
-                    for link in links[:5]:  # limita a 5 por página
+                    for link in links[:5]:
                         if '.onion' in link:
                             results.extend(self.crawl_url(link, keywords, depth + 1))
 
@@ -101,12 +111,22 @@ class TorCrawler:
     def save_result(self, result):
         conn = sqlite3.connect('darkweb_monitor.db')
         cursor = conn.cursor()
+        try:
+            cursor.execute("ALTER TABLE results ADD COLUMN snippets TEXT")
+        except sqlite3.OperationalError:
+            pass  # coluna já existe
         cursor.execute(
             '''
-            INSERT INTO results (url, keywords, timestamp, title)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO results (url, keywords, timestamp, title, snippets)
+            VALUES (?, ?, ?, ?, ?)
             ''',
-            (result['url'], ','.join(result['keywords']), result['timestamp'], result['title'])
+            (
+                result['url'],
+                ','.join(result['keywords']),
+                result['timestamp'],
+                result['title'],
+                json.dumps(result['snippets'])
+            )
         )
         conn.commit()
         conn.close()
@@ -144,6 +164,12 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Adicionar coluna snippets se não existir
+    try:
+        cursor.execute("ALTER TABLE results ADD COLUMN snippets TEXT")
+    except sqlite3.OperationalError:
+        pass  # coluna já existe
 
     conn.commit()
     conn.close()
@@ -220,9 +246,27 @@ def toggle_url(url_id):
 def results():
     conn = sqlite3.connect('darkweb_monitor.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM results ORDER BY created_at DESC LIMIT 100')
-    results_list = cursor.fetchall()
+    cursor.execute('SELECT id, url, keywords, timestamp, title, snippets FROM results ORDER BY created_at DESC LIMIT 100')
+    rows = cursor.fetchall()
     conn.close()
+
+    results_list = []
+    for row in rows:
+        snippets = []
+        if row[5]:
+            try:
+                snippets = json.loads(row[5])
+            except:
+                snippets = []
+        results_list.append({
+            'id': row[0],
+            'url': row[1],
+            'keywords': row[2],
+            'timestamp': row[3],
+            'title': row[4],
+            'snippets': snippets
+        })
+
     return render_template('results.html', results=results_list)
 
 @app.route('/start_monitoring')
@@ -267,32 +311,32 @@ def upload_urls():
     if request.method == 'POST':
         if 'file' not in request.files:
             return jsonify({'error': 'Nenhum arquivo enviado'}), 400
-        
+
         file = request.files['file']
         if file.filename == '':
             return jsonify({'error': 'Nenhum arquivo selecionado'}), 400
-        
+
         if file and file.filename.endswith('.txt'):
             urls_added = 0
             urls_skipped = 0
-            
+
             conn = sqlite3.connect('darkweb_monitor.db')
             cursor = conn.cursor()
-            
-            for line in file.readlines():
-                url = line.decode('utf-8').strip()
-                if url and '.onion' in url:
+
+            for raw in file:
+                line = raw.decode('utf-8', errors='ignore').strip()
+                if line and '.onion' in line:
                     try:
-                        cursor.execute('INSERT INTO urls (url) VALUES (?)', (url,))
+                        cursor.execute('INSERT INTO urls (url) VALUES (?)', (line,))
                         urls_added += 1
                     except sqlite3.IntegrityError:
-                        urls_skipped += 1 # URL já existe
+                        urls_skipped += 1
                 else:
-                    urls_skipped += 1 # URL inválida ou não .onion
-            
+                    urls_skipped += 1
+
             conn.commit()
             conn.close()
-            
+
             return jsonify({
                 'message': f'{urls_added} URLs adicionadas, {urls_skipped} URLs ignoradas.',
                 'added': urls_added,
@@ -300,9 +344,9 @@ def upload_urls():
             }), 200
         else:
             return jsonify({'error': 'Formato de arquivo inválido. Apenas .txt é permitido.'}), 400
-            
-    return render_template('upload_urls.html') # Vamos criar este template
+
+    return render_template('upload_urls.html')
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='127.0.0.1', port=5000)
