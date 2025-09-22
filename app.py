@@ -19,8 +19,8 @@ class TorCrawler:
         self.session = requests.Session()
         # Proxy TOR padrão (localhost:9050)
         self.session.proxies = {
-            'http': 'socks5://127.0.0.1:9050',
-            'https': 'socks5://127.0.0.1:9050'
+            'http': 'socks5h://127.0.0.1:9050',
+            'https': 'socks5h://127.0.0.1:9050'
         }
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
