@@ -7,13 +7,39 @@ import re
 from urllib.parse import urljoin
 import logging
 import json
+import os
+from urllib.parse import urlsplit
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'
+app.secret_key = os.environ.get('FLASK_SECRET_KEY') or os.urandom(32)
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024  # Bound uploaded URL lists to 1 MiB
 
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def is_valid_onion_url(value):
+    """Accept only absolute HTTP(S) URLs whose hostname is a v3 onion service."""
+    if not isinstance(value, str) or not value or any(c.isspace() for c in value):
+        return False
+    try:
+        parts = urlsplit(value)
+        hostname = parts.hostname or ''
+        # v3 onion host: 56 base32 characters, plus .onion; v2 is obsolete.
+        label, suffix = hostname.rsplit('.', 1)
+        return (
+            parts.scheme in ('http', 'https')
+            and suffix == 'onion'
+            and len(label) == 56
+            and all(c in 'abcdefghijklmnopqrstuvwxyz234567' for c in label)
+            and not parts.username
+            and not parts.password
+            and not parts.fragment
+            and parts.port in (None, 80, 443)
+        )
+    except (ValueError, AttributeError):
+        return False
+
 
 class TorCrawler:
     def __init__(self):
@@ -67,7 +93,7 @@ class TorCrawler:
         return found
 
     def crawl_url(self, url, keywords, depth=0):
-        if depth > self.max_depth or url in self.visited_urls:
+        if not is_valid_onion_url(url) or depth > self.max_depth or url in self.visited_urls:
             return []
 
         self.visited_urls.add(url)
@@ -75,7 +101,7 @@ class TorCrawler:
 
         try:
             logger.info(f"Crawling: {url}")
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=30, allow_redirects=False)
 
             if response.status_code == 200:
                 html = response.text
@@ -93,10 +119,10 @@ class TorCrawler:
                     results.append(result)
                     self.save_result(result)
 
-                if '.onion' in url and depth < self.max_depth:
+                if depth < self.max_depth:
                     links = self.extract_links(html, url)
                     for link in links[:5]:
-                        if '.onion' in link:
+                        if is_valid_onion_url(link):
                             results.extend(self.crawl_url(link, keywords, depth + 1))
 
         except Exception as e:
@@ -222,7 +248,7 @@ def urls():
 @app.route('/add_url', methods=['POST'])
 def add_url():
     url = request.form.get('url', '').strip()
-    if url and '.onion' in url:
+    if is_valid_onion_url(url):
         conn = sqlite3.connect('darkweb_monitor.db')
         cursor = conn.cursor()
         try:
@@ -325,7 +351,7 @@ def upload_urls():
 
             for raw in file:
                 line = raw.decode('utf-8', errors='ignore').strip()
-                if line and '.onion' in line:
+                if is_valid_onion_url(line):
                     try:
                         cursor.execute('INSERT INTO urls (url) VALUES (?)', (line,))
                         urls_added += 1
@@ -349,4 +375,4 @@ def upload_urls():
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=False, host='127.0.0.1', port=5000)
